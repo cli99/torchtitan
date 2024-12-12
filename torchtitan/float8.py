@@ -61,6 +61,7 @@ class Float8Handler:
             cast_config_weight=CastConfig(scaling_type=scaling_type_weight),
             cast_config_grad_output=CastConfig(scaling_type=scaling_type_grad_output),
             enable_pre_and_post_forward=False,
+            force_recompute_fp8_weight_in_bwd=float8_config.force_recompute_fp8_weight_in_bwd,
         )
 
         self.enabled = True

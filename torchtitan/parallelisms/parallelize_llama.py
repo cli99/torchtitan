@@ -11,12 +11,11 @@ from collections import defaultdict
 
 import torch
 import torch.nn as nn
-
 from torch.distributed import DeviceMesh
 from torch.distributed._composable.fsdp import (
     CPUOffloadPolicy,
-    fully_shard,
     MixedPrecisionPolicy,
+    fully_shard,
 )
 from torch.distributed._composable.replicate import replicate
 from torch.distributed._tensor import Replicate, Shard
@@ -25,13 +24,13 @@ from torch.distributed.algorithms._checkpoint.checkpoint_wrapper import (
 )
 from torch.distributed.tensor.parallel import (
     ColwiseParallel,
-    parallelize_module,
     PrepareModuleInput,
     RowwiseParallel,
     SequenceParallel,
+    parallelize_module,
 )
 
-from torchtitan.config_manager import JobConfig, TORCH_DTYPE_MAP
+from torchtitan.config_manager import TORCH_DTYPE_MAP, JobConfig
 from torchtitan.logging import logger
 from torchtitan.parallelisms.parallel_dims import ParallelDims
 from torchtitan.parallelisms.utils import check_if_feature_in_pytorch
@@ -335,6 +334,7 @@ def apply_fsdp(
     Apply data parallelism to the model. FSDP2 is used here.
     """
     mp_policy = MixedPrecisionPolicy(param_dtype=param_dtype, reduce_dtype=reduce_dtype)
+    logger.info(f"apply_fsdp: {mp_policy=}")
     fsdp_config = {"mesh": dp_mesh, "mp_policy": mp_policy}
     if cpu_offload:
         fsdp_config["offload_policy"] = CPUOffloadPolicy()

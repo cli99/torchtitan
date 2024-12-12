@@ -10,6 +10,7 @@ import pickle
 import time
 
 import torch
+
 from torchtitan.config_manager import JobConfig
 from torchtitan.logging import logger
 
@@ -64,6 +65,7 @@ def maybe_enable_profiling(config: JobConfig, *, global_step: int = 0):
             schedule=torch.profiler.schedule(wait=wait, warmup=warmup, active=active),
             on_trace_ready=trace_handler,
             record_shapes=True,
+            with_stack=False,
         ) as torch_profiler:
             torch_profiler.step_num = global_step
             yield torch_profiler

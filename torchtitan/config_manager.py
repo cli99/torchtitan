@@ -514,6 +514,12 @@ class JobConfig:
             help="Whether precompute float8 scales dynamically for FSDP",
         )
         self.parser.add_argument(
+            "--float8.force_recompute_fp8_weight_in_bwd",
+            action="store_true",
+            default=False,
+            help="force_recompute_fp8_weight_in_bwdP",
+        )
+        self.parser.add_argument(
             "--float8.scaling_type_input",
             type=str,
             default="dynamic",

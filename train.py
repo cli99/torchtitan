@@ -9,7 +9,6 @@ import time
 from datetime import timedelta
 
 import torch
-
 from torch.distributed.elastic.multiprocessing.errors import record
 
 from torchtitan import utils
@@ -22,9 +21,9 @@ from torchtitan.metrics import build_device_memory_monitor, build_metric_logger
 from torchtitan.models import model_name_to_cls, model_name_to_tokenizer, models_config
 from torchtitan.optimizer import build_lr_schedulers, build_optimizers
 from torchtitan.parallelisms import (
+    ParallelDims,
     models_parallelize_fns,
     models_pipelining_fns,
-    ParallelDims,
 )
 from torchtitan.profiling import maybe_enable_memory_snapshot, maybe_enable_profiling
 from torchtitan.utils import clip_grad_norm_, device_module, device_type
@@ -315,12 +314,12 @@ def main(job_config: JobConfig):
                     loss.backward()
 
             # clip gradients
-            clip_grad_norm_(
-                [p for m in model_parts for p in m.parameters()],
-                job_config.training.max_norm,
-                foreach=True,
-                pp_mesh=pp_mesh if parallel_dims.pp_enabled else None,
-            )
+            # clip_grad_norm_(
+            #     [p for m in model_parts for p in m.parameters()],
+            #     job_config.training.max_norm,
+            #     foreach=True,
+            #     pp_mesh=pp_mesh if parallel_dims.pp_enabled else None,
+            # )
 
             # sync float8 amaxes and scales
             float8_handler.sync_float8_amax_and_scale_history(model_parts)
