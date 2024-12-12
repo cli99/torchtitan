@@ -275,7 +275,6 @@ def build_test_list():
             ],
             "PP with custom pipeline schedule loaded from CSV file",
             "pp_custom_csv",
-            requires_seed_checkpoint=True,
             ngpu=2,
         ),
         OverrideDefinitions(
@@ -307,6 +306,28 @@ def build_test_list():
             ],
             "HSDP",
             "hsdp",
+            ngpu=4,
+        ),
+        OverrideDefinitions(
+            [
+                [
+                    "--experimental.context_parallel_degree=4",
+                    "--experimental.context_parallel_rotate_method='allgather'",
+                ]
+            ],
+            "CP (allgather)",
+            "cp_allgather",
+            ngpu=4,
+        ),
+        OverrideDefinitions(
+            [
+                [
+                    "--experimental.context_parallel_degree=4",
+                    "--experimental.context_parallel_rotate_method='alltoall'",
+                ]
+            ],
+            "CP (alltoall)",
+            "cp_alltoall",
             ngpu=4,
         ),
         OverrideDefinitions(
@@ -364,13 +385,15 @@ def build_test_list():
             ],
             "FSDP2 Memory Tracking and Estimation",
             "fsdp2_mem_tracker",
-            ngpu=4,
+            ngpu=2,
         ),
         OverrideDefinitions(
             [
                 [
+                    "--checkpoint.enable_checkpoint",
                     "--experimental.pipeline_parallel_degree 2",
                     "--training.enable_cpu_offload True",
+                    "--optimizer.early_step_in_backward",
                 ],
             ],
             "Enable CPU Offload with PP",
@@ -409,7 +432,10 @@ def run_test(test_flavor: OverrideDefinitions, full_path: str, output_dir: str):
     for override_arg in test_flavor.override_args:
         cmd = f"CONFIG_FILE={full_path} NGPU={test_flavor.ngpu} LOG_RANK={all_ranks} ./run_llama_train.sh"
         if test_name == "fsdp2_mem_tracker":
-            cmd = f"CONFIG_FILE={full_path} NGPU={test_flavor.ngpu} LOG_RANK={all_ranks} ./run_memory_estimation.sh"
+            cmd = (
+                f"CONFIG_FILE={full_path} NGPU={test_flavor.ngpu} LOG_RANK={all_ranks} "
+                "./scripts/estimate/run_memory_estimation.sh"
+            )
         cmd += " " + dump_folder_arg
         cmd += " " + model_flavor_arg
         if override_arg:

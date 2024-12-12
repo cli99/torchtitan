@@ -26,7 +26,7 @@ from torchtitan.parallelisms import (
     models_pipelining_fns,
 )
 from torchtitan.profiling import maybe_enable_memory_snapshot, maybe_enable_profiling
-from torchtitan.utils import clip_grad_norm_, device_module, device_type
+from torchtitan.utils import device_module, device_type
 
 
 # Enable debug tracing on failure: https://pytorch.org/docs/stable/elastic/errors.html
@@ -40,15 +40,6 @@ def main(job_config: JobConfig):
 
     # take control of garbage collection to avoid stragglers
     gc_handler = utils.GarbageCollection(gc_freq=job_config.training.gc_freq)
-
-    # set determinisism, use seed == None to skip deterministic training
-    utils.set_determinism(job_config.training.seed)
-    if job_config.training.seed is None:
-        logger.info("Deterministic training off")
-    else:
-        logger.info(
-            f"Deterministic training on. Using seed: {job_config.training.seed}"
-        )
 
     # init distributed
     world_size = int(os.environ["WORLD_SIZE"])
@@ -80,12 +71,13 @@ def main(job_config: JobConfig):
     if parallel_dims.pp_enabled:
         pp_mesh = world_mesh["pp"]
 
+    # Set random seed, and maybe enable deterministic mode (mainly for debugging, expect perf loss)
+    utils.set_determinism(world_mesh, device, job_config)
     model_name = job_config.model.name
 
     # build tokenizer
     tokenizer_type = model_name_to_tokenizer[model_name]
     tokenizer = build_tokenizer(tokenizer_type, job_config.model.tokenizer_path)
-
     # build dataloader
     data_loader = build_hf_data_loader(
         job_config.training.dataset,
@@ -176,7 +168,7 @@ def main(job_config: JobConfig):
 
     device_mem_stats = device_memory_monitor.get_peak_stats()
     logger.info(
-        f"{device_type.upper} memory usage for model: "
+        f"{device_type.upper()} memory usage for model: "
         f"{device_mem_stats.max_reserved_gib:.2f}GiB"
         f"({device_mem_stats.max_reserved_pct:.2f}%)"
     )
@@ -191,8 +183,8 @@ def main(job_config: JobConfig):
     checkpoint = CheckpointManager(
         dataloader=data_loader,
         model_parts=model_parts,
-        optimizers=optimizers.optimizers,
-        lr_schedulers=lr_schedulers.schedulers,
+        optimizers=optimizers,
+        lr_schedulers=lr_schedulers,
         states={"train_state": train_state},
         job_config=job_config,
     )
@@ -205,15 +197,7 @@ def main(job_config: JobConfig):
         logger.info("Created seed checkpoint")
         return
 
-    checkpoint_loaded = checkpoint.load()
-
-    if parallel_dims.pp_enabled and not checkpoint_loaded:
-        # TODO: fix this by allowing each rank to set their own seed
-        logger.warning(
-            "Pipeline Parallelism is being used without a seed checkpoint. "
-            "All the substages will be initialized with random weights with same RNG state which can affect convergence."
-        )
-
+    checkpoint.load(step=job_config.checkpoint.load_step)
     metric_logger = build_metric_logger(job_config, parallel_dims)
 
     # plot losses loaded from checkpoint (if any) to TensorBoard
@@ -279,6 +263,7 @@ def main(job_config: JobConfig):
                     cp_buffers=[input_ids, labels, model.freqs_cis],
                     cp_seq_dims=[1, 1, 0],
                     cp_no_restore_buffers={input_ids, labels},
+                    cp_rotate_method=job_config.experimental.context_parallel_rotate_method,
                 )
                 if parallel_dims.cp_enabled
                 else None
@@ -314,12 +299,12 @@ def main(job_config: JobConfig):
                     loss.backward()
 
             # clip gradients
-            # clip_grad_norm_(
-            #     [p for m in model_parts for p in m.parameters()],
-            #     job_config.training.max_norm,
-            #     foreach=True,
-            #     pp_mesh=pp_mesh if parallel_dims.pp_enabled else None,
-            # )
+            utils.clip_grad_norm_(
+                [p for m in model_parts for p in m.parameters()],
+                job_config.training.max_norm,
+                foreach=True,
+                pp_mesh=pp_mesh if parallel_dims.pp_enabled else None,
+            )
 
             # sync float8 amaxes and scales
             float8_handler.sync_float8_amax_and_scale_history(model_parts)
@@ -357,14 +342,14 @@ def main(job_config: JobConfig):
 
                 time_delta = time.perf_counter() - time_last_log
 
-                # tokens per second, abbr. as wps by convention
-                wps = ntokens_since_last_log / (
+                # tokens per second per device, abbreviated as tps
+                tps = ntokens_since_last_log / (
                     time_delta * parallel_dims.non_data_parallel_size
                 )
                 # model FLOPS utilization
                 # For its definition and calculation, please refer to the PaLM paper:
                 # https://arxiv.org/abs/2204.02311
-                mfu = 100 * num_flop_per_token * wps / gpu_peak_flops
+                mfu = 100 * num_flop_per_token * tps / gpu_peak_flops
 
                 time_end_to_end = time_delta / job_config.metrics.log_freq
                 time_data_loading = sum(data_loading_times) / len(data_loading_times)
@@ -375,7 +360,7 @@ def main(job_config: JobConfig):
                 metrics = {
                     "loss_metrics/global_avg_loss": global_avg_loss,
                     "loss_metrics/global_max_loss": global_max_loss,
-                    "wps": wps,
+                    "throughput(tps)": tps,
                     "mfu(%)": mfu,
                     "time_metrics/end_to_end(s)": time_end_to_end,
                     "time_metrics/data_loading(s)": time_data_loading,
@@ -394,7 +379,7 @@ def main(job_config: JobConfig):
                     f"{color.green}loss: {global_avg_loss:7.4f}  "
                     f"{color.yellow}memory: {device_mem_stats.max_reserved_gib:5.2f}GiB"
                     f"({device_mem_stats.max_reserved_pct:.2f}%)  "
-                    f"{color.blue}wps: {round(wps):,}  "
+                    f"{color.blue}tps: {round(tps):,}  "
                     f"{color.magenta}mfu: {mfu:.2f}%{color.reset}"
                 )
 

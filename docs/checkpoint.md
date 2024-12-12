@@ -14,7 +14,7 @@ python3 scripts/convert_llama_to_dcp.py <input_dir> <output_dir>
 
 This guide will walk you through the steps required to convert a checkpoint from torchtitan so that it can be loaded into torchtune.
 
-## Steps
+### Steps
 1. ENABLE CHECKPOINTING
 In your torchtitan training config, ensure that `enable_checkpoint` is set to True.
 ```
@@ -49,7 +49,8 @@ export_dtype = "bfloat16"
 enable_checkpoint = true
 folder = "checkpoint"
 interval_type = "steps"
-interval = 5
+interval = 10
+load_step = 5
 model_weights_only = true
 export_dtype = "bfloat16"
 ```

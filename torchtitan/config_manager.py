@@ -121,15 +121,16 @@ class JobConfig:
             help="How often to log metrics to TensorBoard, in iterations",
         )
         self.parser.add_argument(
-            "--metrics.enable_color_printing",
-            default=False,
-            action="store_true",
-            help="Whether to enable color printing",
-        )
-        self.parser.add_argument(
             "--metrics.enable_tensorboard",
             action="store_true",
+            default=False,
             help="Whether to log metrics to TensorBoard",
+        )
+        self.parser.add_argument(
+            "--metrics.enable_color_printing",
+            action="store_true",
+            default=True,
+            help="Whether to enable color printing in logs",
         )
         self.parser.add_argument(
             "--metrics.save_tb_folder",
@@ -139,13 +140,19 @@ class JobConfig:
         )
         self.parser.add_argument(
             "--metrics.rank_0_only",
-            default=True,
             action="store_true",
+            default=True,
             help="""
                 Whether to save TensorBoard metrics only for rank 0 or for all ranks.
                 When pipeline_parallel_degree is > 1, this option uses the 0th rank of the last stage pipeline group,
                 which is the only stage that computes loss metrics.
             """,
+        )
+        self.parser.add_argument(
+            "--metrics.enable_wandb",
+            action="store_true",
+            default=False,
+            help="Whether to log metrics to Weights & Biases",
         )
 
         # model configs
@@ -186,6 +193,15 @@ class JobConfig:
             default=False,
             action="store_true",
             help="Whether the fused implementation(CUDA only) is used.",
+        )
+        self.parser.add_argument(
+            "--optimizer.early_step_in_backward",
+            default=False,
+            action="store_true",
+            help="""
+            Whether to apply optimizer in the backward. Caution, optimizer_in_backward
+            is not compatible with gradients clipping, users should not call
+            register_post_accumulate_grad_hook after the optimizer is built.""",
         )
 
         # training configs
@@ -321,7 +337,7 @@ class JobConfig:
             help="""
                 Specify the path to the pipeline parallel schedule csv file to use.
                 The pipeline_parallel_schedule argument must be either
-                PipelineScheduleSingle or PipelineScheduleMulti.
+                PipelineScheduleSingle, PipelineScheduleMulti, or _PipelineScheduleRuntime.
             """,
         )
 
@@ -347,6 +363,20 @@ class JobConfig:
             type=int,
             default=1,
             help="Context parallelism degree. 1 means disabled.",
+        )
+        self.parser.add_argument(
+            "--experimental.context_parallel_rotate_method",
+            type=str,
+            default="allgather",
+            help="""
+                The collective to use in context parallel SDPA for kv shards exchange.
+
+                'allgather' means to all-gather all kv shards on ranks after the first sub-SDPA computation,
+
+                'alltoall' means to all-to-all shuffle the kv shards.
+
+                The default value is 'allgather'.
+            """,
         )
         self.parser.add_argument(
             "--training.mixed_precision_param",
@@ -383,7 +413,12 @@ class JobConfig:
             "--training.seed",
             type=int,
             default=None,
-            help="Implement reproducibility by setting a Python, PyTorch and CUDA seed",
+            help="Choose the base RNG seed used for training",
+        )
+        self.parser.add_argument(
+            "--training.deterministic",
+            action="store_true",
+            help="Use deterministic algorithms wherever possible, may be slower",
         )
         # checkpointing configs
         self.parser.add_argument(
@@ -473,7 +508,12 @@ class JobConfig:
                 0 is the default value.
             """,
         )
-
+        self.parser.add_argument(
+            "--checkpoint.load_step",
+            type=int,
+            default=-1,
+            help="Load the checkpoint at the specified step. If -1, load the latest checkpoint.",
+        )
         # activation checkpointing configs
         self.parser.add_argument(
             "--activation_checkpoint.mode",
